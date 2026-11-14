@@ -87,21 +87,17 @@ async function runTests() {
         window.focus();
         document.body.focus();
       });
-      const start = Date.now();
       await page.keyboard.down(key);
-      while (Date.now() - start < timeoutMs) {
-        const ok = await page.evaluate(conditionFn);
-        if (ok) {
-          await page.keyboard.up(key);
-          await sleep(150);
-          return true;
-        }
-        await sleep(40);
-      }
+      const ok = await page.waitForFunction(conditionFn, { timeout: timeoutMs, polling: 'raf' })
+        .then(() => true)
+        .catch(() => false);
       await page.keyboard.up(key);
-      const endPos = await getPos();
-      console.log(`[walkUntil ${key} TIMEOUT] Final pos:`, endPos);
-      return false;
+      await sleep(150);
+      if (!ok) {
+        const endPos = await getPos();
+        console.log(`[walkUntil ${key} TIMEOUT] Final pos:`, endPos);
+      }
+      return ok;
     }
 
     // Step 0 check: strict 0/13 (0%) start
