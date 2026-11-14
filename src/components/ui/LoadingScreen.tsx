@@ -3,7 +3,7 @@ import { useProgress } from '@react-three/drei';
 export function LoadingScreen() {
   const { active, progress, item } = useProgress();
 
-  if (!active && progress === 100) return null;
+  if (!active || progress >= 100) return null;
 
   const displayItem = item ? item.split('/').pop()?.split('?')[0] : 'Telemetry & Terrain';
 
