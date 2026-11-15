@@ -12,6 +12,7 @@ interface PlayerControllerProps {
   environment: GameEnvironment;
   isPaused: boolean;
   spawnPosition?: [number, number, number];
+  isDrivingRover?: boolean;
   teleportTrigger?: number;
   onPositionChange: (pos: [number, number, number]) => void;
   onInteractPressed: () => void;
@@ -25,6 +26,7 @@ export function PlayerController({
   cameraMode,
   environment = 'exterior',
   isPaused,
+  isDrivingRover = false,
   spawnPosition,
   teleportTrigger = 0,
   onPositionChange,
@@ -212,6 +214,23 @@ export function PlayerController({
   useFrame((_, delta) => {
     if (!groupRef.current) return;
 
+    // Hide on-foot avatar and track vehicle location while driving
+    if (isDrivingRover) {
+      groupRef.current.visible = false;
+      if (spawnPosition) {
+        posRef.current.set(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
+        if (typeof window !== 'undefined') {
+          (window as unknown as { __PLAYER_POS__?: { x: number; y: number; z: number } }).__PLAYER_POS__ = {
+            x: posRef.current.x,
+            y: posRef.current.y,
+            z: posRef.current.z,
+          };
+        }
+      }
+      return;
+    }
+    groupRef.current.visible = true;
+
     // Zero out movement if paused
     if (isPaused) {
       currentSpeedRef.current = 0;
@@ -222,19 +241,13 @@ export function PlayerController({
       inputsRef.current.run = false;
     }
 
-    // 1. Calculate horizontal axes based on environment
-    if (environment === 'interior') {
-      // In structured interior habitat rooms: W is North (-Z), S is South (+Z), D is East (+X), A is West (-X)
-      forwardVec.current.set(0, 0, -1);
-      rightVec.current.set(1, 0, 0);
-    } else {
-      camera.getWorldDirection(forwardVec.current);
-      forwardVec.current.y = 0;
-      forwardVec.current.normalize();
+    // 1. Calculate camera-relative movement axes (W=forward, S=backward, A=left, D=right relative to active camera)
+    camera.getWorldDirection(forwardVec.current);
+    forwardVec.current.y = 0;
+    forwardVec.current.normalize();
 
-      rightVec.current.crossVectors(forwardVec.current, upVec.current);
-      rightVec.current.normalize();
-    }
+    rightVec.current.crossVectors(forwardVec.current, upVec.current);
+    rightVec.current.normalize();
 
     // 2. Build camera-relative movement direction
     moveDirVec.current.set(0, 0, 0);
@@ -250,6 +263,9 @@ export function PlayerController({
       moveDirVec.current.normalize();
     }
 
+    // Clamp frame delta to prevent physics tunneling on lag spikes
+    const safeDelta = Math.min(delta, 0.05);
+
     // Target movement speed
     const maxSpeed = inputsRef.current.run ? 4.8 : 2.5;
     const targetSpeed = hasInput ? maxSpeed : 0;
@@ -259,7 +275,7 @@ export function PlayerController({
       currentSpeedRef.current,
       targetSpeed,
       12,
-      delta
+      safeDelta
     );
 
     // 3. Update character orientation
@@ -270,23 +286,24 @@ export function PlayerController({
       let diff = targetRotationY - rotYRef.current;
       while (diff < -Math.PI) diff += Math.PI * 2;
       while (diff > Math.PI) diff -= Math.PI * 2;
-      rotYRef.current += diff * Math.min(1, delta * 14);
+      rotYRef.current += diff * Math.min(1, safeDelta * 14);
     }
 
-    // 4. Update horizontal position & resolve collisions
+    // 4. Update horizontal position & resolve collisions with smooth wall sliding
     if (currentSpeedRef.current > 0.01) {
-      const deltaDist = currentSpeedRef.current * delta;
-      const nextX = posRef.current.x + moveDirVec.current.x * deltaDist;
-      const nextZ = posRef.current.z + moveDirVec.current.z * deltaDist;
+      const deltaDist = currentSpeedRef.current * safeDelta;
 
-      const { x: resolvedX, z: resolvedZ } = resolveCollisions(
-        nextX,
-        nextZ,
-        0.35,
-        environment
-      );
-      posRef.current.x = resolvedX;
-      posRef.current.z = resolvedZ;
+      // Axis-decoupled collision resolution for smooth wall sliding:
+      // Test X movement first, retaining Z position
+      const testX = posRef.current.x + moveDirVec.current.x * deltaDist;
+      const resX = resolveCollisions(testX, posRef.current.z, 0.35, environment);
+
+      // Test Z movement from the resolved X position
+      const testZ = posRef.current.z + moveDirVec.current.z * deltaDist;
+      const resFinal = resolveCollisions(resX.x, testZ, 0.35, environment);
+
+      posRef.current.x = resFinal.x;
+      posRef.current.z = resFinal.z;
     }
 
     // 5. Lunar terrain height & gravity simulation
@@ -294,8 +311,8 @@ export function PlayerController({
 
     if (!isGroundedRef.current) {
       const lunarGravity = 3.2; // floaty responsive lunar hop
-      velocityYRef.current -= lunarGravity * delta;
-      posRef.current.y += velocityYRef.current * delta;
+      velocityYRef.current -= lunarGravity * safeDelta;
+      posRef.current.y += velocityYRef.current * safeDelta;
 
       if (posRef.current.y <= groundHeight) {
         posRef.current.y = groundHeight;
@@ -327,6 +344,20 @@ export function PlayerController({
         y: posRef.current.y,
         z: posRef.current.z,
       };
+
+      if (groupRef.current) {
+        const box = new THREE.Box3().setFromObject(groupRef.current);
+        (window as unknown as { __FLOOR_DEBUG__?: unknown }).__FLOOR_DEBUG__ = {
+          playerPosY: posRef.current.y,
+          groundHeight,
+          avatarMinY: box.min.y,
+          avatarMaxY: box.max.y,
+          avatarHeight: box.max.y - box.min.y,
+          footDeltaY: box.min.y - groundHeight,
+          environment,
+          isGrounded: isGroundedRef.current,
+        };
+      }
     }
   });
 

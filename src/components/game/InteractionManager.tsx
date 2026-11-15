@@ -1,4 +1,5 @@
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { InteractiveStationMarker } from './InteractiveStationMarker';
 import type { GameEnvironment, InteractiveTarget, MissionObjective } from '../../types/game';
 
@@ -39,114 +40,135 @@ export function InteractionManager({
     },
 
     // -------------------------------------------------------------
-    // INTERIOR TARGETS (AUTHENTIC WORK BAY GEOMETRY)
+    // LUNAR BASE INTERIOR TARGETS (28.14m x 41.04m AUTHENTIC BASE)
     // -------------------------------------------------------------
+    // Step 3: South Corridor / Airlock Exit Staging Console
     {
       id: 'interior_prep_bench',
-      title: 'Work Bay Equipment Console',
+      title: 'Airlock Operations & Staging Console',
       actionText: 'PRESS [E] TO INITIALIZE SUIT PREPARATION',
-      position: [-1.45, 0.06, -1.8],
-      radius: 2.2,
+      position: [-1.4, 1.14, 17.5],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'habitat_prep_bench',
       requiredObjective: 'prep_astronaut',
     },
+
+    // Step 4: Crew Quarters - Suit Selection Station
     {
       id: 'interior_suit_station',
       title: 'EVA Spacesuit Station',
       actionText: 'PRESS [E] TO SELECT & EQUIP SPACESUIT',
-      position: [-1.2, 0.06, 0.2],
-      radius: 2.6,
+      position: [-12.2, 1.14, -2.5],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'suit_selection',
       requiredObjective: 'select_suit',
     },
+
+    // Step 5: Crew Quarters - Component Inspection Glovebox
     {
       id: 'interior_inspection_bench',
       title: 'Component Inspection Glovebox',
       actionText: 'PRESS [E] TO SCAN HELMET & GLOVES',
-      position: [0.1, 0.06, -1.8],
-      radius: 2.2,
+      position: [-5.0, 1.14, -5.0],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'helmet_inspection',
       requiredObjective: 'inspect_components',
     },
+
+    // Step 6: Engineering Bay - PLSS Life Support Gantry
     {
       id: 'interior_plss_gantry',
       title: 'PLSS Life Support Gantry',
       actionText: 'PRESS [E] TO ENGAGE HOIST & MOUNT PLSS',
-      position: [-2.6, 0.06, -1.8],
-      radius: 2.5,
+      position: [7.8, 1.14, -5.2],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'plss_station',
       requiredObjective: 'mount_plss',
     },
+
+    // Step 7: Engineering Bay - High-Pressure O2 Supply Manifold
     {
       id: 'interior_oxygen_station',
       title: 'High-Pressure O2 Supply Manifold',
       actionText: 'PRESS [E] TO OPEN O2 VALVE & VERIFY 5.8 MPa',
-      position: [-2.6, 0.06, 1.8],
-      radius: 2.2,
+      position: [12.8, 1.14, -4.5],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'oxygen_check',
       requiredObjective: 'verify_oxygen',
     },
+
+    // Step 8: Command Bridge - Suit Pressure Diagnostic Console
     {
       id: 'interior_pressure_station',
       title: 'Suit Pressure Diagnostic Console',
       actionText: 'PRESS [E] TO ACTIVATE SUIT PRESSURE TEST (29.6 kPa)',
-      position: [-1.45, 0.06, 1.8],
-      radius: 2.2,
+      position: [-3.8, 1.14, -14.5],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'pressure_check',
       requiredObjective: 'test_pressure',
     },
+
+    // Step 9: Command Bridge - Mission Comms & Radio Terminal
     {
       id: 'interior_radio_station',
       title: 'Mission Comms Radio Terminal',
       actionText: 'PRESS [E] TO TEST PTT COMM CHECK WITH HOUSTON',
-      position: [1.2, 0.6, 1.8],
-      radius: 2.2,
+      position: [3.8, 1.14, -14.5],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'comms_check',
       requiredObjective: 'verify_radio',
     },
+
+    // Step 10: Engineering Bay - LCVG Cooling Chiller Loop
     {
       id: 'interior_cooling_station',
       title: 'LCVG Chiller Loop Station',
       actionText: 'PRESS [E] TO ENGAGE COOLING CHILLER LOOP',
-      position: [-0.3, 0.06, 1.8],
-      radius: 2.2,
+      position: [6.8, 1.14, -2.5],
+      radius: 1.8,
       environment: 'interior',
       stationType: 'cooling_inspection',
       requiredObjective: 'test_cooling',
     },
+
+    // Step 11: South Airlock Module (Inner Pressure Hatch)
     {
       id: 'interior_airlock_chamber',
       title: 'Airlock Chamber Hatch',
       actionText: 'PRESS [E] TO ENTER AIRLOCK & SECURE INNER HATCH',
-      position: [0, 0.06, 3.2],
-      radius: 2.2,
+      position: [0.0, 1.14, 19.4],
+      radius: 1.8,
       environment: 'interior',
       stationType: 'airlock_chamber',
       requiredObjective: 'enter_airlock',
     },
+
+    // Step 12: South Airlock Module (Depressurization Console)
     {
       id: 'interior_airlock_console',
       title: 'Airlock Depressurization Console',
       actionText: 'PRESS [E] TO CYCLE AIRLOCK DEPRESSURIZATION',
-      position: [1.15, 0.06, 3.2],
-      radius: 2.2,
+      position: [1.2, 1.14, 21.0],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'airlock_cycle_console',
       requiredObjective: 'depressurize_airlock',
     },
+
+    // Step 13: South Airlock Outer Blast Door (to Lunar Surface)
     {
       id: 'interior_airlock_exit',
       title: 'Airlock Outer Blast Door',
       actionText: 'PRESS [E] OR [ENTER] TO EGRESS ONTO LUNAR SURFACE',
-      position: [0, 0.06, 3.6],
-      radius: 2.4,
+      position: [0.0, 1.14, 22.4],
+      radius: 1.5,
       environment: 'interior',
       stationType: 'habitat_exit',
       requiredObjective: 'exit_surface',
@@ -156,8 +178,14 @@ export function InteractionManager({
   // Track closest target without triggering re-render cascades
   const lastTargetIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    const [px, , pz] = playerPosition;
+  useFrame(() => {
+    // Read instantaneous 3D player position directly to eliminate React state batching lag
+    const px = (typeof window !== 'undefined' && (window as unknown as { __PLAYER_POS__?: { x: number; y: number; z: number } }).__PLAYER_POS__)
+      ? (window as unknown as { __PLAYER_POS__: { x: number; y: number; z: number } }).__PLAYER_POS__.x
+      : playerPosition[0];
+    const pz = (typeof window !== 'undefined' && (window as unknown as { __PLAYER_POS__?: { x: number; y: number; z: number } }).__PLAYER_POS__)
+      ? (window as unknown as { __PLAYER_POS__: { x: number; y: number; z: number } }).__PLAYER_POS__.z
+      : playerPosition[2];
 
     // Filter targets by environment matching player
     const relevantTargets = allTargets.filter(
@@ -193,11 +221,15 @@ export function InteractionManager({
       }
     }
 
-    // If no active required match, check closest target in range
+    // Only the active mission objective station should trigger, preventing out-of-order skips
     let closestTarget: InteractiveTarget | null = activeMatch;
-    if (!closestTarget) {
+    if (!closestTarget && !activeObjective) {
       let minDist = Infinity;
       for (const target of relevantTargets) {
+        // Skip stations for objectives that are already completed
+        const targetObj = objectives.find((o) => o.id === target.requiredObjective);
+        if (targetObj?.completed) continue;
+
         const [tx, , tz] = target.position;
         const dist = Math.hypot(px - tx, pz - tz);
         if (dist <= target.radius && dist < minDist) {
@@ -215,15 +247,20 @@ export function InteractionManager({
       lastTargetIdRef.current = targetKey;
       onActiveTargetChange(closestTarget);
     }
-  }, [
-    playerPosition,
-    currentEnvironment,
-    currentObjectiveIndex,
-    activeObjective,
-    allTargets,
-    onActiveTargetChange,
-    onObjectiveCompleted,
-  ]);
+
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __INTERACTION_DEBUG__?: unknown }).__INTERACTION_DEBUG__ = {
+        playerPosition: [px, 0.06, pz],
+        currentEnvironment,
+        currentObjectiveIndex,
+        activeObjectiveId: activeObjective?.id,
+        relevantTargetsCount: relevantTargets.length,
+        activeMatchId: activeMatch?.id,
+        closestTargetId: closestTarget?.id,
+        lastTargetId: lastTargetIdRef.current,
+      };
+    }
+  });
 
   // Identify active target for 3D waypoint rendering
   const activeStation = useMemo(() => {

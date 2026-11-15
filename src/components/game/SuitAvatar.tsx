@@ -66,6 +66,23 @@ export function SuitAvatar({
     spineBoneRef.current = spine;
   }, [clonedScene]);
 
+  // Expose bone debug info
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const bones: { name: string; localY: number }[] = [];
+      clonedScene.traverse((obj) => {
+        if ((obj as THREE.Bone).isBone) {
+          bones.push({ name: obj.name, localY: obj.position.y });
+        }
+      });
+      (window as unknown as { __ASTRO_DEBUG__?: unknown }).__ASTRO_DEBUG__ = {
+        bones,
+        clonedSceneY: clonedScene.position.y,
+        clonedSceneScale: clonedScene.scale.toArray(),
+      };
+    }
+  }, [clonedScene]);
+
   // State tracking for smooth cross-fades
   const currentActionRef = useRef<'walk' | 'run' | 'idle'>('idle');
   const prevTimeRef = useRef(0);
@@ -152,9 +169,14 @@ export function SuitAvatar({
 
     const time = state.clock.elapsedTime;
 
+    // Calibrated model ground offset:
+    // In astronaut_rigged.glb, animated boot soles are 0.042m above root origin.
+    // Offsetting group Y by -0.042m ensures both boots firmly touch the rendered floor.
+    const SOLE_GROUND_OFFSET = -0.042;
+
     if (!motion.isGrounded) {
       // Airborne lunar hop posture: slight body incline & leg hang
-      groupRef.current.position.y = equipSettleY + 0.05;
+      groupRef.current.position.y = equipSettleY + 0.05 + SOLE_GROUND_OFFSET;
       groupRef.current.rotation.x = THREE.MathUtils.damp(
         groupRef.current.rotation.x,
         -0.06,
@@ -162,17 +184,21 @@ export function SuitAvatar({
         delta
       );
     } else if (!motion.isMoving) {
-      // Natural idle standing pose with subtle chest/spine breathing
-      const breathing = Math.sin(time * 1.8) * 0.005;
-      groupRef.current.position.y = equipSettleY + breathing;
+      // Firmly grounded standing posture: boots planted flat with zero vertical drift
+      groupRef.current.position.y = equipSettleY + SOLE_GROUND_OFFSET;
       groupRef.current.rotation.x = THREE.MathUtils.damp(
         groupRef.current.rotation.x,
         0,
         8,
         delta
       );
+      // Subtle organic breathing applied to chest/spine, leaving feet anchored
+      if (spineBoneRef.current) {
+        spineBoneRef.current.rotation.x += Math.sin(time * 1.8) * 0.003;
+      }
     } else {
-      groupRef.current.position.y = equipSettleY;
+      // Walking / running grounded posture
+      groupRef.current.position.y = equipSettleY + SOLE_GROUND_OFFSET;
       groupRef.current.rotation.x = THREE.MathUtils.damp(
         groupRef.current.rotation.x,
         0,
@@ -197,6 +223,29 @@ export function SuitAvatar({
         12,
         delta
       );
+    }
+
+    // Measure live foot bone world positions
+    if (typeof window !== 'undefined') {
+      let lFootY = 0, rFootY = 0, lToeY = 0, rToeY = 0;
+      const v = new THREE.Vector3();
+      clonedScene.traverse((obj) => {
+        if ((obj as THREE.Bone).isBone) {
+          if (obj.name === 'LeftFoot') { obj.getWorldPosition(v); lFootY = v.y; }
+          if (obj.name === 'RightFoot') { obj.getWorldPosition(v); rFootY = v.y; }
+          if (obj.name === 'LeftToeBase') { obj.getWorldPosition(v); lToeY = v.y; }
+          if (obj.name === 'RightToeBase') { obj.getWorldPosition(v); rToeY = v.y; }
+        }
+      });
+      (window as unknown as { __FEET_WORLD_Y__?: unknown }).__FEET_WORLD_Y__ = {
+        leftFootY: lFootY,
+        rightFootY: rFootY,
+        leftToeY: lToeY,
+        rightToeY: rToeY,
+        groupY: groupRef.current.position.y,
+        currentAction: currentActionRef.current,
+        equipSettleY,
+      };
     }
   });
 

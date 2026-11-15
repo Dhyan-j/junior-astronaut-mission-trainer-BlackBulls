@@ -1,7 +1,11 @@
 import { useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { getTerrainHeight, INTERIOR_BOX_OBSTACLES } from '../../utils/terrainHeight';
+import {
+  getTerrainHeight,
+  INTERIOR_BOX_OBSTACLES,
+  EXTERIOR_BOX_OBSTACLES,
+} from '../../utils/terrainHeight';
 import type { CameraMode, GameEnvironment } from '../../types/game';
 
 interface CameraControllerProps {
@@ -9,6 +13,8 @@ interface CameraControllerProps {
   environment?: GameEnvironment;
   targetPosition: [number, number, number];
   isPaused: boolean;
+  isDrivingRover?: boolean;
+  teleportTrigger?: number;
   resetSignal?: number;
 }
 
@@ -17,14 +23,16 @@ export function CameraController({
   environment = 'exterior',
   targetPosition,
   isPaused,
+  isDrivingRover = false,
+  teleportTrigger = 0,
   resetSignal = 0,
 }: CameraControllerProps) {
   const { camera, gl } = useThree();
 
-  // Third-person orbit parameters
-  const thirdDistanceRef = useRef(4.8);
+  // Third-person orbit parameters (Behind and slightly above astronaut)
+  const thirdDistanceRef = useRef(3.8);
   const thirdYawRef = useRef(0.0);
-  const thirdPitchRef = useRef(0.35);
+  const thirdPitchRef = useRef(0.24);
 
   // First-person mouse-look parameters
   const firstYawRef = useRef(0.0);
@@ -38,13 +46,30 @@ export function CameraController({
   const isDraggingRef = useRef(false);
   const prevMouseRef = useRef({ x: 0, y: 0 });
 
-  // Reset inspection camera on resetSignal
+  const [posX, posY, posZ] = targetPosition;
+
+  // Reset and snap camera immediately on teleport, environment transition, or resetSignal
   useEffect(() => {
     inspectDistanceRef.current = 2.8;
     inspectYawRef.current = 0.0;
     inspectPitchRef.current = 0.2;
-    thirdDistanceRef.current = 4.8;
-  }, [resetSignal]);
+    thirdDistanceRef.current = 3.8;
+    thirdYawRef.current = 0.0;
+    thirdPitchRef.current = 0.24;
+
+    // Immediately snap camera behind the player (looking North, -Z)
+    const targetY = posY + 1.25;
+    const initialDist = environment === 'interior' ? 1.6 : 3.8;
+    const camY = environment === 'interior'
+      ? Math.min(2.85, targetY + Math.sin(0.24) * initialDist)
+      : targetY + Math.sin(0.24) * initialDist;
+    const camZ = posZ + Math.cos(0.24) * initialDist;
+
+    currentActualPos.current.set(posX, camY, camZ);
+    camera.position.copy(currentActualPos.current);
+    camera.lookAt(posX, targetY, posZ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teleportTrigger, environment, resetSignal, camera]);
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -68,8 +93,8 @@ export function CameraController({
       if (mode === 'third_person') {
         thirdYawRef.current -= dx * sensitivity;
         thirdPitchRef.current = Math.max(
-          -0.12,
-          Math.min(1.15, thirdPitchRef.current + dy * sensitivity)
+          -0.05,
+          Math.min(0.85, thirdPitchRef.current + dy * sensitivity)
         );
       } else if (mode === 'first_person') {
         firstYawRef.current -= dx * sensitivity;
@@ -96,58 +121,74 @@ export function CameraController({
 
       if (mode === 'third_person') {
         thirdDistanceRef.current = Math.max(
-          1.8,
-          Math.min(10.0, thirdDistanceRef.current + e.deltaY * 0.005)
+          2.0,
+          Math.min(5.5, thirdDistanceRef.current + e.deltaY * 0.004)
         );
       } else if (mode === 'inspection') {
         inspectDistanceRef.current = Math.max(
-          1.2,
-          Math.min(5.5, inspectDistanceRef.current + e.deltaY * 0.004)
+          1.4,
+          Math.min(5.0, inspectDistanceRef.current + e.deltaY * 0.003)
         );
       }
-    };
-
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
     };
 
     dom.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     dom.addEventListener('wheel', handleWheel, { passive: false });
-    dom.addEventListener('contextmenu', handleContextMenu);
 
     return () => {
       dom.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       dom.removeEventListener('wheel', handleWheel);
-      dom.removeEventListener('contextmenu', handleContextMenu);
     };
-  }, [gl, isPaused, mode]);
+  }, [mode, isPaused, gl.domElement]);
 
-  const targetVec = useRef(new THREE.Vector3());
-  const idealPosVec = useRef(new THREE.Vector3());
+  // Smoothed camera positions and orientations
   const currentActualPos = useRef(new THREE.Vector3());
+  const idealPosVec = useRef(new THREE.Vector3());
+  const targetVec = useRef(new THREE.Vector3());
+
+  // Reusable raycasting vectors for camera wall collision avoidance
+  const camRayDir = useRef(new THREE.Vector3());
+  const camRay = useRef(new THREE.Ray());
+  const hitPointVec = useRef(new THREE.Vector3());
+  const tempBox3 = useRef(new THREE.Box3());
 
   useFrame((_, delta) => {
     if (mode === 'first_person') {
-      // 1. FIRST-PERSON MODE: Exactly aligned with helmet visor eye height
-      const eyeHeight = targetPosition[1] + 1.62;
-      camera.position.set(targetPosition[0], eyeHeight, targetPosition[2]);
+      // 1. FIRST-PERSON MODE: Helmet / Eye level view
+      const eyeHeight = 1.76;
+      targetVec.current.set(
+        targetPosition[0],
+        targetPosition[1] + eyeHeight,
+        targetPosition[2]
+      );
 
+      const forwardOffset = 0.12;
+      const lookDist = 10.0;
       const yaw = firstYawRef.current;
       const pitch = firstPitchRef.current;
 
-      const lookTarget = new THREE.Vector3(
-        targetPosition[0] - Math.sin(yaw) * Math.cos(pitch) * 10,
-        eyeHeight + Math.sin(pitch) * 10,
-        targetPosition[2] - Math.cos(yaw) * Math.cos(pitch) * 10
+      const fX = Math.sin(yaw) * Math.cos(pitch);
+      const fY = Math.sin(pitch);
+      const fZ = Math.cos(yaw) * Math.cos(pitch);
+
+      idealPosVec.current.set(
+        targetVec.current.x + Math.sin(yaw) * forwardOffset,
+        targetVec.current.y,
+        targetVec.current.z + Math.cos(yaw) * forwardOffset
       );
 
-      camera.lookAt(lookTarget);
+      camera.position.copy(idealPosVec.current);
+      camera.lookAt(
+        idealPosVec.current.x + fX * lookDist,
+        idealPosVec.current.y + fY * lookDist,
+        idealPosVec.current.z + fZ * lookDist
+      );
     } else if (mode === 'inspection') {
-      // 2. INSPECTION MODE: Orbit focused on suit chest
+      // 2. INSPECTION MODE: 360 Turntable Orbit
       targetVec.current.set(
         targetPosition[0],
         targetPosition[1] + 1.1,
@@ -164,83 +205,90 @@ export function CameraController({
 
       idealPosVec.current.set(
         targetVec.current.x + offsetX,
-        targetVec.current.y + offsetY,
+        Math.max(0.4, targetVec.current.y + offsetY),
         targetVec.current.z + offsetZ
       );
 
       camera.position.copy(idealPosVec.current);
       camera.lookAt(targetVec.current);
     } else {
-      // 3. THIRD-PERSON MODE: Smooth follow with wall collision avoidance
-      targetVec.current.set(
-        targetPosition[0],
-        targetPosition[1] + 1.45, // Head/torso center
-        targetPosition[2]
-      );
+      // 3. THIRD-PERSON MODE: Seamless follow camera (astronaut or lunar rover)
+      // When driving rover, read the instantaneous rover position to eliminate 60fps frame lag
+      let curTargetX = targetPosition[0];
+      let curTargetY = targetPosition[1];
+      let curTargetZ = targetPosition[2];
 
-      let maxDist = thirdDistanceRef.current;
-      const yaw = thirdYawRef.current;
-      const pitch = thirdPitchRef.current;
-
-      // In interior environment: dynamic wall & obstacle avoidance ray-check
-      if (environment === 'interior') {
-        const dirX = Math.sin(yaw) * Math.cos(pitch);
-        const dirY = Math.sin(pitch);
-        const dirZ = Math.cos(yaw) * Math.cos(pitch);
-
-        // Raymarch from head out to desired orbit distance
-        const steps = 15;
-        let safeDist = 1.6;
-
-        for (let i = 1; i <= steps; i++) {
-          const testDist = 1.4 + (i / steps) * (maxDist - 1.4);
-          const tx = targetVec.current.x + dirX * testDist;
-          const ty = targetVec.current.y + dirY * testDist;
-          const tz = targetVec.current.z + dirZ * testDist;
-
-          // Check against room perimeter envelope
-          if (tx < -3.3 || tx > 3.3 || tz < -2.1 || tz > 3.9 || ty < 0.4 || ty > 2.5) {
-            break;
-          }
-
-          // Check against interior box obstacles
-          let hit = false;
-          for (const box of INTERIOR_BOX_OBSTACLES) {
-            if (
-              tx >= box.minX - 0.25 &&
-              tx <= box.maxX + 0.25 &&
-              tz >= box.minZ - 0.25 &&
-              tz <= box.maxZ + 0.25
-            ) {
-              hit = true;
-              break;
-            }
-          }
-          if (hit) break;
-
-          safeDist = testDist;
+      if (isDrivingRover && typeof window !== 'undefined') {
+        const activeRoverPos = (window as unknown as { __ACTIVE_ROVER_POS__?: [number, number, number] }).__ACTIVE_ROVER_POS__;
+        if (activeRoverPos) {
+          curTargetX = activeRoverPos[0];
+          curTargetY = activeRoverPos[1];
+          curTargetZ = activeRoverPos[2];
         }
-
-        maxDist = Math.max(1.4, safeDist - 0.15);
       }
 
-      const offsetX = Math.sin(yaw) * Math.cos(pitch) * maxDist;
-      const offsetZ = Math.cos(yaw) * Math.cos(pitch) * maxDist;
-      const offsetY = Math.sin(pitch) * maxDist;
+      const targetLookY = isDrivingRover ? 1.65 : 1.25;
+      targetVec.current.set(
+        curTargetX,
+        curTargetY + targetLookY,
+        curTargetZ
+      );
 
-      let targetCamX = targetVec.current.x + offsetX;
-      let targetCamY = targetVec.current.y + offsetY;
-      let targetCamZ = targetVec.current.z + offsetZ;
+      const maxDist = isDrivingRover ? 7.2 : thirdDistanceRef.current;
+      const yaw = thirdYawRef.current;
+      const pitch = isDrivingRover ? Math.max(0.22, thirdPitchRef.current) : thirdPitchRef.current;
+
+      const fullOffsetX = Math.sin(yaw) * Math.cos(pitch) * maxDist;
+      const fullOffsetY = Math.sin(pitch) * maxDist;
+      const fullOffsetZ = Math.cos(yaw) * Math.cos(pitch) * maxDist;
+
+      // Line of sight ray from astronaut / vehicle upper body toward desired camera position
+      camRayDir.current.set(fullOffsetX, fullOffsetY, fullOffsetZ);
+      const fullDist = camRayDir.current.length();
+      camRayDir.current.normalize();
+      camRay.current.set(targetVec.current, camRayDir.current);
+
+      let allowedDist = fullDist;
+
+      // Collision detection against obstacles and walls
+      const boxes = environment === 'interior' ? INTERIOR_BOX_OBSTACLES : EXTERIOR_BOX_OBSTACLES;
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        tempBox3.current.min.set(
+          b.minX - 0.25,
+          environment === 'interior' ? 1.05 : -10.0,
+          b.minZ - 0.25
+        );
+        tempBox3.current.max.set(
+          b.maxX + 0.25,
+          environment === 'interior' ? 4.5 : 20.0,
+          b.maxZ + 0.25
+        );
+
+        if (camRay.current.intersectBox(tempBox3.current, hitPointVec.current)) {
+          const hitDist = targetVec.current.distanceTo(hitPointVec.current);
+          const safeDist = Math.max(1.15, hitDist - 0.25);
+          if (safeDist < allowedDist) {
+            allowedDist = safeDist;
+          }
+        }
+      }
+
+      // Compute camera position with wall collision distance
+      let targetCamX = targetVec.current.x + Math.sin(yaw) * Math.cos(pitch) * allowedDist;
+      let targetCamY = targetVec.current.y + Math.sin(pitch) * allowedDist;
+      let targetCamZ = targetVec.current.z + Math.cos(yaw) * Math.cos(pitch) * allowedDist;
 
       if (environment === 'interior') {
-        // Enforce hard ceiling and floor limits in interior
-        targetCamY = Math.max(0.5, Math.min(2.45, targetCamY));
-        targetCamX = Math.max(-3.3, Math.min(3.3, targetCamX));
-        targetCamZ = Math.max(-2.1, Math.min(3.9, targetCamZ));
+        // Ceiling clearance: prevent camera clipping through corridor / room ceilings
+        targetCamY = THREE.MathUtils.clamp(targetCamY, 1.45, 2.95);
+        // Base perimeter clamp
+        targetCamX = THREE.MathUtils.clamp(targetCamX, -13.5, 13.5);
+        targetCamZ = THREE.MathUtils.clamp(targetCamZ, -17.5, 22.5);
       } else {
         // Exterior terrain height ground-clip avoidance
         const groundAtCam = getTerrainHeight(targetCamX, targetCamZ, 'exterior');
-        const minCamHeight = groundAtCam + 0.45;
+        const minCamHeight = groundAtCam + 0.55;
         if (targetCamY < minCamHeight) {
           targetCamY = minCamHeight;
         }
@@ -248,8 +296,9 @@ export function CameraController({
 
       idealPosVec.current.set(targetCamX, targetCamY, targetCamZ);
 
-      // Smooth camera interpolation
-      currentActualPos.current.lerp(idealPosVec.current, Math.min(1, delta * 12));
+      // Follow rate: tight responsive tracking when driving to eliminate terrain lag
+      const followLerpRate = isDrivingRover ? 26.0 : 12.0;
+      currentActualPos.current.lerp(idealPosVec.current, Math.min(1, delta * followLerpRate));
       camera.position.copy(currentActualPos.current);
       camera.lookAt(targetVec.current);
     }
@@ -257,3 +306,4 @@ export function CameraController({
 
   return null;
 }
+

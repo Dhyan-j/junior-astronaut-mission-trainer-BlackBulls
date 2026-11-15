@@ -103,3 +103,29 @@ export interface MissionState {
   isMuted: boolean;
   currentEnvironment: GameEnvironment;
 }
+
+export interface RoverTelemetry {
+  speed: number; // m/s
+  speedKmh: number; // km/h
+  battery: number; // % (0-100)
+  totalDistance: number; // meters
+  heading: number; // degrees (0-360)
+  isBraking: boolean;
+  isReversing: boolean;
+  driveMode: 'DRIVE' | 'REVERSE' | 'PARK' | 'BRAKE';
+}
+
+export interface GeologicalSample {
+  id: string;
+  name: string;
+  scientificName: string;
+  era: string;
+  rockType: 'Anorthosite' | 'Basalt' | 'Breccia' | 'Pyroclastic Glass' | 'Volcanic Glass';
+  position: [number, number, number];
+  color: string;
+  description: string;
+  composition: { mineral: string; percentage: number }[];
+  significance: string;
+  massGrams: number;
+  collected: boolean;
+}

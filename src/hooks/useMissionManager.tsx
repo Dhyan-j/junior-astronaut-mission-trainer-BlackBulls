@@ -191,19 +191,19 @@ export function useMissionManager(
 
   // Smooth screen fade transition manager
   const transitionToEnvironment = useCallback((nextEnv: GameEnvironment) => {
+    console.log('[useMissionManager] transitionToEnvironment called with:', nextEnv);
     setIsTransitioning(true);
     playPneumaticDoorSound();
 
     // Teleport while screen is completely black (at 280ms)
     setTimeout(() => {
+      console.log('[useMissionManager] executing teleport inside timeout to:', nextEnv);
       setCurrentEnvironment(nextEnv);
       if (nextEnv === 'interior') {
-        // Spawn inside interior airlock chamber facing inward into habitat
-        setPlayerSpawnPosition([0, 0.06, 3.2]);
+        // Spawn inside dedicated EVA airlock module facing North into base
+        setPlayerSpawnPosition([0, 1.14, 21.0]);
         startHabitatAmbientHum();
       } else {
-        // Spawn outside on the airlock threshold ramp facing the lunar horizon
-        setPlayerSpawnPosition([-3.5, 0.04, -1.0]);
         // Spawn outside on the Large Domed Habitat entrance ramp
         setPlayerSpawnPosition([-13.5, 0.04, -11.5]);
         stopHabitatAmbientHum();

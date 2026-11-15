@@ -242,3 +242,8 @@ export function SuitSelectionStation({
     </group>
   );
 }
+
+useGLTF.preload(z2Path, '/draco/gltf/');
+useGLTF.preload(mark3Path, '/draco/gltf/');
+useGLTF.preload(emuPath, '/draco/gltf/');
+
